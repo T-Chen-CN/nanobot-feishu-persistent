@@ -52,6 +52,7 @@ Restart the gateway.
 ## CLI
 
 ```
+nbfp recall recent     --chat-id ou_xxx [--limit 1] [--since 10m]
 nbfp recall load       --ids a,b,c [--auto-refetch]
 nbfp recall by-message --message-id om_xxx
 nbfp recall list       --chat-id ou_xxx --since 24h --limit 20
@@ -94,8 +95,20 @@ Every subcommand emits JSON to stdout. Exit codes: `0` all-success,
 
 ## Agent usage pattern
 
-When an agent sees `<feishu-images ids="...">` in history and needs vision on
-those images now:
+The one-liner (v0.2+): the agent reads `Chat ID` from Runtime Context and runs
+
+```
+nbfp recall recent --chat-id $CHAT_ID --json
+```
+
+which scans `~/.nanobot/workspace/sessions/feishu_persistent_<chat_id>.jsonl`
+newest-first, pulls the latest breadcrumb, loads its images (auto-refetching
+from Feishu if missing on disk), and returns the same envelope as
+`recall load`. The agent then `read_file`s each `local_path` to bring the
+image back into vision.
+
+Advanced: when an agent knows a specific breadcrumb from history and needs
+a subset of images:
 
 1. `nbfp recall load --ids <csv> --auto-refetch`
 2. Parse `images[].local_path` from stdout JSON

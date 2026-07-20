@@ -19,6 +19,11 @@ from . import __version__
 from .index import Index
 from .paths import index_path, media_dir
 from .recall import recall_by_ids, recall_by_message, reindex_dir, RecallResult
+from .session import (
+    collect_recent_ids,
+    extract_from_session,
+    session_file_for_chat,
+)
 
 
 def _emit(obj: dict, *, as_json: bool) -> None:
@@ -67,6 +72,50 @@ def cmd_load(args) -> int:
         # real Feishu client-backed refetch in its own path.
         result = recall_by_ids(idx, ids, auto_refetch=args.auto_refetch)
     _emit(result.to_dict(), as_json=args.json)
+    return _exit_from_result(result)
+
+
+def cmd_recent(args) -> int:
+    since = _parse_since(args.since)
+    if args.session:
+        session_path = Path(args.session).expanduser()
+    else:
+        session_path = session_file_for_chat(args.chat_id)
+
+    if not session_path.is_file():
+        payload = {
+            "ok": False,
+            "images": [],
+            "missing_on_disk": [],
+            "refetched": [],
+            "errors": [{"error": "session_file_not_found",
+                         "path": str(session_path)}],
+            "session_file": str(session_path),
+        }
+        _emit(payload, as_json=args.json)
+        return 3
+
+    hits = extract_from_session(session_path, since_seconds=since)
+    ids = collect_recent_ids(hits, limit=args.limit)
+    if not ids:
+        payload = {
+            "ok": False,
+            "images": [],
+            "missing_on_disk": [],
+            "refetched": [],
+            "errors": [{"error": "no_breadcrumbs_in_session"}],
+            "session_file": str(session_path),
+            "scanned_hits": len(hits),
+        }
+        _emit(payload, as_json=args.json)
+        return 3
+
+    with _open_index(args) as idx:
+        result = recall_by_ids(idx, ids, auto_refetch=args.auto_refetch)
+    payload = result.to_dict()
+    payload["session_file"] = str(session_path)
+    payload["breadcrumbs"] = [h.to_dict() for h in hits[: args.limit]]
+    _emit(payload, as_json=args.json)
     return _exit_from_result(result)
 
 
@@ -198,6 +247,22 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--auto-refetch", action="store_true",
                     help="Attempt Feishu API refetch when the local file is missing")
     sp.set_defaults(func=cmd_load)
+
+    sp = sub.add_parser(
+        "recent",
+        help="One-shot: find latest breadcrumbs in a Feishu session and load their images",
+    )
+    _common(sp)
+    grp = sp.add_mutually_exclusive_group(required=True)
+    grp.add_argument("--chat-id", help="Feishu chat/open id; resolves to feishu_persistent_<chat_id>.jsonl")
+    grp.add_argument("--session", help="Explicit session JSONL path")
+    sp.add_argument("--limit", type=int, default=1,
+                    help="How many most-recent breadcrumbs to include (default: 1)")
+    sp.add_argument("--since", help="Only consider breadcrumbs received within this window (e.g. 10m, 2h, 3d)")
+    sp.add_argument("--auto-refetch", action="store_true", default=True,
+                    help="Attempt Feishu API refetch when a local file is missing (default on)")
+    sp.add_argument("--no-auto-refetch", dest="auto_refetch", action="store_false")
+    sp.set_defaults(func=cmd_recent)
 
     sp = sub.add_parser("by-message", help="Load images tied to a Feishu message_id")
     _common(sp)

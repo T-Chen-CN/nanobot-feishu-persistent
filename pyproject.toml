@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nanobot-feishu-persistent"
-version = "0.1.0"
+version = "0.2.0"
 description = "Persistent, recallable Feishu image history for nanobot — plugin + CLI (nbfp)"
 readme = "README.md"
 license = { text = "MIT" }
